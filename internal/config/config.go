@@ -49,21 +49,28 @@ func Load(path string) (Config, error) {
 	}
 
 	ids := make(map[string]struct{}, len(cfg.Sources))
-	for index, source := range cfg.Sources {
-		if source.ID == "" || strings.TrimSpace(source.ID) != source.ID {
-			return Config{}, fmt.Errorf("sources[%d]: invalid id", index)
+	for _, source := range cfg.Sources {
+		if err := source.Validate(); err != nil {
+			return Config{}, err
 		}
 		if _, exists := ids[source.ID]; exists {
 			return Config{}, fmt.Errorf("duplicate source id %q", source.ID)
 		}
 		ids[source.ID] = struct{}{}
-		if source.Kind != PortWatch && source.Kind != RSS {
-			return Config{}, fmt.Errorf("source %q: unsupported kind %q", source.ID, source.Kind)
-		}
-		address, err := url.Parse(source.FeedURL)
-		if err != nil || address.Scheme != "https" || address.Hostname() == "" || address.User != nil || address.Fragment != "" {
-			return Config{}, fmt.Errorf("source %q: feed_url must be an absolute HTTPS URL without credentials or fragment", source.ID)
-		}
 	}
 	return cfg, nil
+}
+
+func (source Source) Validate() error {
+	if source.ID == "" || strings.TrimSpace(source.ID) != source.ID {
+		return errors.New("invalid source id")
+	}
+	if source.Kind != PortWatch && source.Kind != RSS {
+		return fmt.Errorf("source %q: unsupported kind %q", source.ID, source.Kind)
+	}
+	address, err := url.Parse(source.FeedURL)
+	if err != nil || address.Scheme != "https" || address.Hostname() == "" || address.User != nil || address.Fragment != "" {
+		return fmt.Errorf("source %q: feed_url must be an absolute HTTPS URL without credentials or fragment", source.ID)
+	}
+	return nil
 }

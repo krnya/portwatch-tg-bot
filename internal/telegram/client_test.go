@@ -22,7 +22,7 @@ func TestSend(t *testing.T) {
 		{"server error", 500, `unavailable`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client, err := NewClient("123:test-token", "-1001234567890")
+			client, err := NewClient("123:test-token")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -39,10 +39,10 @@ func TestSend(t *testing.T) {
 				io.WriteString(w, test.body)
 			}))
 			client.http = server.Client()
-			client.endpoint = server.URL + "/bot123:test-token/sendMessage"
+			client.endpoint = server.URL + "/bot123:test-token"
 			defer server.Close()
 
-			messageID, err := client.Send(t.Context(), "Headline\n\nhttps://example.com/news/story")
+			messageID, err := client.Send(t.Context(), "-1001234567890", "Headline\n\nhttps://example.com/news/story")
 			if test.code == 200 {
 				if err != nil || messageID != 99 {
 					t.Fatalf("message ID = %d, error = %v", messageID, err)
@@ -58,14 +58,40 @@ func TestSend(t *testing.T) {
 }
 
 func TestTransportErrorDoesNotExposeToken(t *testing.T) {
-	client, err := NewClient("123:test-token", "@channel")
+	client, err := NewClient("123:test-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	client.endpoint = server.URL + "/bot123:test-token/sendMessage"
+	client.endpoint = server.URL + "/bot123:test-token"
 	server.Close()
-	if _, err := client.Send(t.Context(), "test"); err == nil || strings.Contains(err.Error(), "test-token") {
+	if _, err := client.Send(t.Context(), "@channel", "test"); err == nil || strings.Contains(err.Error(), "test-token") {
 		t.Fatalf("unexpected transport error: %v", err)
+	}
+}
+
+func TestUpdates(t *testing.T) {
+	client, err := NewClient("123:test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var args struct {
+			Offset         int64    `json:"offset"`
+			Timeout        int      `json:"timeout"`
+			AllowedUpdates []string `json:"allowed_updates"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&args); err != nil || args.Offset != 101 || args.Timeout != 25 ||
+			len(args.AllowedUpdates) != 1 || args.AllowedUpdates[0] != "message" || r.URL.Path != "/bot123:test-token/getUpdates" {
+			t.Errorf("getUpdates request = %+v, path = %q, error = %v", args, r.URL.Path, err)
+		}
+		io.WriteString(w, `{"ok":true,"result":[{"update_id":101,"message":{"chat":{"id":42,"type":"private"},"from":{"id":42},"text":"/start"}}]}`)
+	}))
+	defer server.Close()
+	client.http, client.endpoint = server.Client(), server.URL+"/bot123:test-token"
+	updates, err := client.Updates(t.Context(), 101)
+	if err != nil || len(updates) != 1 || updates[0].ID != 101 || updates[0].Message == nil ||
+		updates[0].Message.Chat.ID != 42 || updates[0].Message.From.ID != 42 || updates[0].Message.Text != "/start" {
+		t.Fatalf("updates = %+v, error = %v", updates, err)
 	}
 }

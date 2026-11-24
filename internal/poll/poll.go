@@ -20,6 +20,7 @@ type Poller struct {
 	Store      *store.Store
 	Logger     *slog.Logger
 	Wake       chan<- struct{}
+	Refresh    <-chan struct{}
 }
 
 func (poller Poller) Run(ctx context.Context, cfg config.Config) {
@@ -32,6 +33,8 @@ func (poller Poller) Run(ctx context.Context, cfg config.Config) {
 			timer.Stop()
 			return
 		case <-timer.C:
+		case <-poller.Refresh:
+			timer.Stop()
 		}
 		updated, err := config.Load(poller.ConfigPath)
 		if err != nil {
@@ -43,7 +46,12 @@ func (poller Poller) Run(ctx context.Context, cfg config.Config) {
 }
 
 func (poller Poller) poll(ctx context.Context, cfg config.Config) {
-	for _, source := range cfg.Sources {
+	sources, err := poller.Store.Sources(ctx, cfg.Sources)
+	if err != nil {
+		poller.Logger.Error("load source overrides", "error", err)
+		return
+	}
+	for _, source := range sources {
 		if ctx.Err() != nil {
 			return
 		}

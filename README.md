@@ -1,6 +1,6 @@
 # PortWatch Bot
 
-A Go bot that reads RSS feeds and sends new articles to a Telegram chat. By default, it checks `https://portwatch-vi.xyz/news/feed.xml` every two minutes.
+A Go bot that sends new RSS articles to Telegram subscribers. By default, it checks `https://portwatch-vi.xyz/news/feed.xml` every two minutes.
 
 ## Running the bot
 
@@ -8,18 +8,29 @@ A Go bot that reads RSS feeds and sends new articles to a Telegram chat. By defa
 cp .env.example .env
 ```
 
-Set `TELEGRAM_BOT_TOKEN` from BotFather and `TELEGRAM_CHAT_ID` in `.env`. For a private chat, open a conversation with the bot and press Start. For a group or channel, give the bot permission to send messages. `TELEGRAM_CHAT_ID` accepts a numeric chat ID or the `@username` of a public channel.
+Set `TELEGRAM_BOT_TOKEN` from BotFather in `.env`. Set `TELEGRAM_OWNER_ID` to your numeric Telegram user ID to manage domains from your private chat with the bot.
+
+`TELEGRAM_CHAT_ID` is optional and configures an additional destination for all news. It accepts a numeric ID or the `@username` of a public channel. Give the bot permission to post if you use a group or channel.
 
 ```sh
 docker compose up -d --build
 docker compose logs -f portwatch
 ```
 
-The first successful poll of each source records its existing articles. Notifications start with articles discovered on later polls. The `portwatch-data` Docker volume preserves the history and delivery queue across restarts. Run one bot instance per volume.
+Anyone can open a private chat with the bot and press **Start** or send `/subscribe` to receive new articles. Send `/unsubscribe` to stop receiving them. The first successful poll of each source records existing articles, and joining the mailing list starts delivery with the next new article. The `portwatch-data` Docker volume preserves subscriptions, article history, and queued deliveries across restarts. Run one bot instance per bot token and volume.
 
 ## Updating sources
 
-Edit [`config/sources.yaml`](config/sources.yaml). The bot reloads it before the next poll. Save changes by atomically replacing the file where possible. If the bot cannot load the new configuration, it keeps using the previous list. Set `sources: []` to pause polling.
+Only the Telegram user configured in `TELEGRAM_OWNER_ID` can manage domains through the bot. Send these commands in a private chat:
+
+- `/domains` lists the active sources and their IDs.
+- `/setdomain portwatch-vi new.example.org` moves a source to another domain while keeping its feed path and article history.
+- `/adddomain another new.example.org` adds a PortWatch-style source with the `/news/feed.xml` path.
+- `/removedomain another` removes a source from polling.
+
+The add and change commands also accept a full HTTPS feed URL. Changes are stored in SQLite and take precedence over entries with the same ID in [`config/sources.yaml`](config/sources.yaml).
+
+The YAML file supplies the initial sources and polling interval. The bot reloads it before the next poll and keeps the previous configuration if the edit is invalid.
 
 ```yaml
 poll_interval: 2m

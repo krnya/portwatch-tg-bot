@@ -24,10 +24,10 @@ func (fetch fetchFunc) Fetch(ctx context.Context, source config.Source) ([]feed.
 	return fetch(ctx, source)
 }
 
-type sendFunc func(context.Context, string) (int64, error)
+type sendFunc func(context.Context, string, string) (int64, error)
 
-func (send sendFunc) Send(ctx context.Context, text string) (int64, error) {
-	return send(ctx, text)
+func (send sendFunc) Send(ctx context.Context, chat, text string) (int64, error) {
+	return send(ctx, chat, text)
 }
 
 func TestRunningBotReloadsSources(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRunningBotReloadsSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "watch.sqlite"))
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "watch.sqlite"), "@channel")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRunningBotReloadsSources(t *testing.T) {
 		}
 		return articles, nil
 	})}
-	delivery := Delivery{Store: db, Logger: logger, Wake: wake, Sender: sendFunc(func(_ context.Context, text string) (int64, error) {
+	delivery := Delivery{Store: db, Logger: logger, Wake: wake, Sender: sendFunc(func(_ context.Context, _, text string) (int64, error) {
 		sent <- text
 		return 99, nil
 	})}
@@ -135,7 +135,7 @@ func TestRunningBotReloadsSources(t *testing.T) {
 func TestDeliveryPersistsRetryAndAcknowledgment(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "watch.sqlite")
-	db, err := store.Open(ctx, path)
+	db, err := store.Open(ctx, path, "@channel")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestDeliveryPersistsRetryAndAcknowledgment(t *testing.T) {
 	if err != nil || item.QueueID == 0 {
 		t.Fatalf("pending = %+v, error = %v", item, err)
 	}
-	worker := Delivery{Store: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Sender: sendFunc(func(context.Context, string) (int64, error) {
+	worker := Delivery{Store: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Sender: sendFunc(func(context.Context, string, string) (int64, error) {
 		return 0, &telegram.APIError{Code: 429, RetryAfter: time.Minute}
 	})}
 	started := time.Now()
@@ -158,7 +158,7 @@ func TestDeliveryPersistsRetryAndAcknowledgment(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	db, err = store.Open(ctx, path)
+	db, err = store.Open(ctx, path, "@channel")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestDeliveryPersistsRetryAndAcknowledgment(t *testing.T) {
 		t.Fatalf("retry after reopen = %+v, error = %v", item, err)
 	}
 	worker.Store = db
-	worker.Sender = sendFunc(func(context.Context, string) (int64, error) { return 99, nil })
+	worker.Sender = sendFunc(func(context.Context, string, string) (int64, error) { return 99, nil })
 	worker.deliver(ctx, item)
 	if item, err := db.OldestPending(ctx); err != nil || item.QueueID != 0 {
 		t.Fatalf("after acknowledgment = %+v, error = %v", item, err)

@@ -14,7 +14,7 @@ import (
 )
 
 type Sender interface {
-	Send(context.Context, string) (int64, error)
+	Send(context.Context, string, string) (int64, error)
 }
 
 type Delivery struct {
@@ -39,20 +39,30 @@ func (worker Delivery) Run(ctx context.Context) {
 			}
 			continue
 		}
-		if !wait(ctx, time.Until(item.NextAttemptAt)) {
-			return
+		if delay := time.Until(item.NextAttemptAt); delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+			case <-worker.Wake:
+			case <-timer.C:
+			}
+			timer.Stop()
+			continue
 		}
 		worker.deliver(ctx, item)
+		wait(ctx, 50*time.Millisecond)
 	}
 }
 
 func (worker Delivery) deliver(ctx context.Context, item store.Pending) {
-	messageID, sendErr := worker.Sender.Send(ctx, message(item.Article))
+	messageID, sendErr := worker.Sender.Send(ctx, item.ChatID, message(item.Article))
 	if sendErr != nil && ctx.Err() != nil {
 		return
 	}
 	var retryAt time.Time
-	if sendErr != nil {
+	var apiError *telegram.APIError
+	blocked := errors.As(sendErr, &apiError) && apiError.Code == 403 && !worker.Store.IsDefaultChat(item.ChatID)
+	if sendErr != nil && !blocked {
 		retryAt = time.Now().Add(retryDelay(sendErr, item.Attempts))
 		worker.Logger.Warn("notification will be retried", "source", item.SourceID, "article", item.Article.ID,
 			"retry_at", retryAt, "error", sendErr)
@@ -62,9 +72,12 @@ func (worker Delivery) deliver(ctx context.Context, item store.Pending) {
 		// Persist the outcome even if a shutdown happened while Telegram responded.
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		var err error
-		if sendErr == nil {
-			err = worker.Store.MarkSent(writeCtx, item.QueueID, messageID)
-		} else {
+		switch {
+		case sendErr == nil:
+			err = worker.Store.MarkSent(writeCtx, item.QueueID)
+		case blocked:
+			err = worker.Store.MarkSent(writeCtx, item.QueueID)
+		default:
 			err = worker.Store.RetryAt(writeCtx, item.QueueID, retryAt)
 		}
 		cancel()
