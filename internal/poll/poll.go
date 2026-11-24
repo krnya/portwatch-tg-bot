@@ -14,9 +14,14 @@ type Fetcher interface {
 	Fetch(context.Context, config.Source) ([]feed.Article, error)
 }
 
+type ProgressFetcher interface {
+	FetchProgress(context.Context, config.Source) (feed.Progress, error)
+}
+
 type Poller struct {
 	ConfigPath string
 	Feed       Fetcher
+	Tracker    ProgressFetcher
 	Store      *store.Store
 	Logger     *slog.Logger
 	Wake       chan<- struct{}
@@ -55,6 +60,9 @@ func (poller Poller) poll(ctx context.Context, cfg config.Config) {
 		if ctx.Err() != nil {
 			return
 		}
+		if source.Kind == config.PortWatch && poller.Tracker != nil {
+			poller.pollProgress(ctx, source)
+		}
 		articles, err := poller.Feed.Fetch(ctx, source)
 		if err != nil {
 			poller.Logger.Warn("fetch feed", "source", source.ID, "error", err)
@@ -65,9 +73,30 @@ func (poller Poller) poll(ctx context.Context, cfg config.Config) {
 			continue
 		}
 		poller.Logger.Debug("feed processed", "source", source.ID, "articles", len(articles))
-		select {
-		case poller.Wake <- struct{}{}:
-		default:
-		}
+		poller.wakeDelivery()
+	}
+}
+
+func (poller Poller) pollProgress(ctx context.Context, source config.Source) {
+	progress, err := poller.Tracker.FetchProgress(ctx, source)
+	if err != nil {
+		poller.Logger.Warn("fetch tracker progress", "source", source.ID, "error", err)
+		return
+	}
+	changed, err := poller.Store.RecordProgress(ctx, source.ID, progress)
+	if err != nil {
+		poller.Logger.Error("record tracker progress", "source", source.ID, "error", err)
+		return
+	}
+	if changed {
+		poller.Logger.Info("tracker progress changed", "source", source.ID, "score", progress.Percentage(), "leader", progress.Leader)
+		poller.wakeDelivery()
+	}
+}
+
+func (poller Poller) wakeDelivery() {
+	select {
+	case poller.Wake <- struct{}{}:
+	default:
 	}
 }

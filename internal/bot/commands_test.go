@@ -100,6 +100,13 @@ func TestPublicSubscriptionsAndOwnerAuthorization(t *testing.T) {
 	}
 	db, commands.Store = reopened, reopened
 	assertSources("https://mirror.example/news/feed.xml")
+	if _, err := db.RecordProgress(ctx, "portwatch-vi", feed.Progress{Score: 725, Leader: "Leader", URL: "https://mirror.example/"}); err != nil {
+		t.Fatal(err)
+	}
+	message(7, 7, "private", "/progress")
+	if !strings.Contains(api.reply, "72.5%") || !strings.Contains(api.reply, "Лидер: Leader") {
+		t.Fatalf("unexpected /progress reply: %q", api.reply)
+	}
 	if err := db.RecordPoll(ctx, "portwatch-vi", []feed.Article{{ID: "old"}}); err != nil {
 		t.Fatal(err)
 	}

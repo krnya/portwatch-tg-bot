@@ -58,9 +58,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	wake := make(chan struct{}, 1)
 	refresh := make(chan struct{}, 1)
-	poller := poll.Poller{ConfigPath: configPath, Feed: feed.NewClient(), Store: db, Logger: logger, Wake: wake, Refresh: refresh}
+	feeds := feed.NewClient()
+	poller := poll.Poller{ConfigPath: configPath, Feed: feeds, Tracker: feeds, Store: db, Logger: logger, Wake: wake, Refresh: refresh}
 	delivery := poll.Delivery{Store: db, Sender: client, Logger: logger, Wake: wake}
-	commands := bot.Commands{Telegram: client, Store: db, Logger: logger, OwnerID: ownerID, ConfigPath: configPath, Refresh: refresh}
+	commands := bot.Commands{Telegram: client, Commits: bot.NewGitHubCommits(), Store: db, Logger: logger,
+		OwnerID: ownerID, ConfigPath: configPath, Refresh: refresh}
 	var workers sync.WaitGroup
 	workers.Add(2)
 	go func() {

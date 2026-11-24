@@ -30,6 +30,43 @@ func (send sendFunc) Send(ctx context.Context, chat, text string) (int64, error)
 	return send(ctx, chat, text)
 }
 
+type progressFunc func(context.Context, config.Source) (feed.Progress, error)
+
+func (fetch progressFunc) FetchProgress(ctx context.Context, source config.Source) (feed.Progress, error) {
+	return fetch(ctx, source)
+}
+
+func TestProgressChangeWithUnavailableRSS(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "watch.sqlite"), "@channel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sources := config.Config{Sources: []config.Source{{ID: "portwatch", Kind: config.PortWatch}}}
+	score := 670
+	wake := make(chan struct{}, 1)
+	poller := Poller{
+		Store: db, Wake: wake, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Feed: fetchFunc(func(context.Context, config.Source) ([]feed.Article, error) {
+			return nil, errors.New("RSS unavailable")
+		}),
+		Tracker: progressFunc(func(context.Context, config.Source) (feed.Progress, error) {
+			return feed.Progress{Score: score}, nil
+		}),
+	}
+	poller.poll(ctx, sources)
+	if len(wake) != 0 {
+		t.Fatal("first progress read unexpectedly woke delivery")
+	}
+	score = 725
+	poller.poll(ctx, sources)
+	item, err := db.OldestPending(ctx)
+	if err != nil || len(wake) != 1 || item.Article.Title != "Прогресс PortWatch VI: 67% → 72.5%" {
+		t.Fatalf("pending progress = %+v, wake = %d, error = %v", item, len(wake), err)
+	}
+}
+
 func TestRunningBotReloadsSources(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	path := filepath.Join(t.TempDir(), "sources.yaml")

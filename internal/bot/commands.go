@@ -21,6 +21,7 @@ type Telegram interface {
 
 type Commands struct {
 	Telegram   Telegram
+	Commits    *GitHubCommits
 	Store      *store.Store
 	Logger     *slog.Logger
 	OwnerID    int64
@@ -45,11 +46,17 @@ func (commands Commands) Run(ctx context.Context) {
 		if err == nil || ctx.Err() != nil {
 			continue
 		}
-		commands.Logger.Warn("process Telegram updates", "error", err)
 		delay := 5 * time.Second
 		var apiError *telegram.APIError
 		if errors.As(err, &apiError) {
+			if apiError.Code == 429 && apiError.RetryAfter == 0 {
+				delay = 30 * time.Second
+			}
 			delay = max(delay, apiError.RetryAfter)
+			commands.Logger.Warn("poll Telegram getUpdates", "error", err, "http_status", apiError.HTTPStatus,
+				"telegram_api_error", apiError.FromAPI, "retry_after", apiError.RetryAfter.String(), "retry_in", delay.String())
+		} else {
+			commands.Logger.Warn("process Telegram updates", "error", err, "retry_in", delay.String())
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -91,8 +98,17 @@ func (commands Commands) handle(ctx context.Context, update *telegram.Message) e
 			break
 		}
 		reply, err = commands.domains(ctx, command, fields[1:])
+	case "/progress":
+		reply, err = commands.progress(ctx)
+	case "/commits":
+		var fetchErr error
+		reply, fetchErr = commands.Commits.Recent(ctx)
+		if fetchErr != nil {
+			commands.Logger.Warn("fetch PortWatch repository commits", "error", fetchErr)
+			reply = "Не удалось получить список коммитов.\n" + commitsPage
+		}
 	case "/help":
-		reply = "Подписаться на новости — /subscribe. Отписаться — /unsubscribe."
+		reply = "Подписаться — /subscribe. Отписаться — /unsubscribe.\nТекущий прогресс — /progress. Коммиты сайта — /commits."
 		if update.From.ID == commands.OwnerID {
 			reply += "\nУправление источниками — /domains."
 		}

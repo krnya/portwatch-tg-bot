@@ -53,28 +53,36 @@ type rssItem struct {
 }
 
 func (client *Client) Fetch(ctx context.Context, source config.Source) ([]Article, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.FeedURL, nil)
+	body, address, err := client.get(ctx, source.FeedURL, "application/rss+xml, application/xml, text/xml")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch RSS: %w", err)
+	}
+	return parse(body, source.Kind, address)
+}
+
+func (client *Client) get(ctx context.Context, address, accept string) ([]byte, *url.URL, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return nil, nil, err
 	}
 	request.Header.Set("User-Agent", "PortWatchBot/1.0")
-	request.Header.Set("Accept", "application/rss+xml, application/xml, text/xml")
+	request.Header.Set("Accept", accept)
 	response, err := client.http.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("RSS HTTP status %d", response.StatusCode)
+		return nil, nil, fmt.Errorf("HTTP status %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxFeedBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read RSS: %w", err)
+		return nil, nil, fmt.Errorf("read response: %w", err)
 	}
 	if len(body) > maxFeedBytes {
-		return nil, errors.New("RSS exceeds 2 MiB")
+		return nil, nil, errors.New("response exceeds 2 MiB")
 	}
-	return parse(body, source.Kind, response.Request.URL)
+	return body, response.Request.URL, nil
 }
 
 func parse(body []byte, kind string, base *url.URL) ([]Article, error) {

@@ -1,6 +1,6 @@
 # PortWatch Bot
 
-A Go bot that sends new RSS articles to Telegram subscribers. By default, it checks `https://portwatch-vi.xyz/news/feed.xml` every two minutes.
+A Go bot that sends PortWatch progress changes and new RSS articles to Telegram subscribers. By default, it checks `https://portwatch-vi.xyz` every two minutes.
 
 ## Running the bot
 
@@ -17,7 +17,9 @@ docker compose up -d --build
 docker compose logs -f portwatch
 ```
 
-Anyone can open a private chat with the bot and press **Start** or send `/subscribe` to receive new articles. Send `/unsubscribe` to stop receiving them. The first successful poll of each source records existing articles, and joining the mailing list starts delivery with the next new article. The `portwatch-data` Docker volume preserves subscriptions, article history, and queued deliveries across restarts. Run one bot instance per bot token and volume.
+Anyone can open a private chat with the bot and press **Start** or send `/subscribe` to receive progress changes and new articles. Send `/unsubscribe` to stop receiving them. The first successful check records the current score and existing articles. Later changes produce notifications such as `67% → 72.5%`. The `portwatch-data` Docker volume preserves subscriptions, progress, article history, and queued deliveries across restarts. Run one bot instance per bot token and volume.
+
+Send `/progress` for the latest observed headline score and leader. Send `/commits` to fetch the five latest commits from the [PortWatch VI website repository](https://github.com/4lwayz/portwatch-vi). The commit list is fetched on demand and cached for two minutes.
 
 ## Updating sources
 
@@ -31,6 +33,8 @@ Only the Telegram user configured in `TELEGRAM_OWNER_ID` can manage domains thro
 The add and change commands also accept a full HTTPS feed URL. Changes are stored in SQLite and take precedence over entries with the same ID in [`config/sources.yaml`](config/sources.yaml).
 
 The YAML file supplies the initial sources and polling interval. The bot reloads it before the next poll and keeps the previous configuration if the edit is invalid.
+
+For `kind: portwatch`, the bot reads `/data/tracker.json` from the configured site and applies the same scoring rules as its homepage. Progress and RSS are checked independently. For `kind: rss`, it reads the configured feed.
 
 ```yaml
 poll_interval: 2m

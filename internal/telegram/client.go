@@ -23,6 +23,8 @@ type Client struct {
 
 type APIError struct {
 	Code       int
+	HTTPStatus int
+	FromAPI    bool
 	RetryAfter time.Duration
 }
 
@@ -101,19 +103,36 @@ func (client *Client) request(ctx context.Context, method string, args, dest any
 		ErrorCode  int             `json:"error_code"`
 		Result     json.RawMessage `json:"result"`
 		Parameters struct {
-			RetryAfter int `json:"retry_after"`
+			RetryAfter int32 `json:"retry_after"`
 		} `json:"parameters"`
 	}
 	err = json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&result)
 	if response.StatusCode != http.StatusOK || result.ErrorCode != 0 {
 		code := response.StatusCode
-		if result.ErrorCode != 0 {
+		fromAPI := err == nil && result.ErrorCode != 0
+		if fromAPI {
 			code = result.ErrorCode
 		}
-		return &APIError{Code: code, RetryAfter: time.Duration(result.Parameters.RetryAfter) * time.Second}
+		retryAfter := time.Duration(result.Parameters.RetryAfter) * time.Second
+		return &APIError{
+			Code:       code,
+			HTTPStatus: response.StatusCode,
+			FromAPI:    fromAPI,
+			RetryAfter: max(0, retryAfter, retryAfterHeader(response.Header.Get("Retry-After"))),
+		}
 	}
 	if err != nil || !result.OK || json.Unmarshal(result.Result, dest) != nil {
 		return errors.New("invalid Telegram API response")
 	}
 	return nil
+}
+
+func retryAfterHeader(value string) time.Duration {
+	if seconds, err := strconv.ParseInt(value, 10, 32); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+	if deadline, err := http.ParseTime(value); err == nil {
+		return time.Until(deadline)
+	}
+	return 0
 }

@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS source_overrides (
     feed_url TEXT NOT NULL,
     removed INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tracker_progress (
+    source_id TEXT PRIMARY KEY NOT NULL,
+    score INTEGER NOT NULL,
+    leader TEXT NOT NULL,
+    url TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    version INTEGER NOT NULL
+);
 `
 
 type Store struct {
@@ -134,13 +142,18 @@ func (store *Store) RecordPoll(ctx context.Context, sourceID string, articles []
 		if inserted != 0 || errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO deliveries(article_id, chat_id)
-			SELECT ?, '' WHERE ? <> '' UNION ALL SELECT ?, chat_id FROM subscribers WHERE chat_id <> ?`,
-			articleID, store.defaultChat, articleID, store.defaultChat); err != nil {
+		if err := store.enqueue(ctx, tx, articleID); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+func (store *Store) enqueue(ctx context.Context, tx *sql.Tx, articleID int64) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO deliveries(article_id, chat_id)
+		SELECT ?, '' WHERE ? <> '' UNION ALL SELECT ?, chat_id FROM subscribers WHERE chat_id <> ?`,
+		articleID, store.defaultChat, articleID, store.defaultChat)
+	return err
 }
 
 func (store *Store) OldestPending(ctx context.Context) (Pending, error) {

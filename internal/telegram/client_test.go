@@ -50,10 +50,29 @@ func TestSend(t *testing.T) {
 				return
 			}
 			var apiError *APIError
-			if !errors.As(err, &apiError) || apiError.Code != test.code || (test.code == 429 && apiError.RetryAfter != 42*time.Second) {
+			if !errors.As(err, &apiError) || apiError.Code != test.code || apiError.HTTPStatus != test.code ||
+				(test.code == 429 && (!apiError.FromAPI || apiError.RetryAfter != 42*time.Second)) {
 				t.Fatalf("unexpected API error: %#v (%v)", apiError, err)
 			}
 		})
+	}
+}
+
+func TestUpdatesRateLimitFromHTTP(t *testing.T) {
+	client, err := NewClient("123:test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "90")
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client.http, client.endpoint = server.Client(), server.URL+"/bot123:test-token"
+	_, err = client.Updates(t.Context(), 0)
+	var apiError *APIError
+	if !errors.As(err, &apiError) || apiError.Code != 429 || apiError.HTTPStatus != 429 || apiError.FromAPI || apiError.RetryAfter != 90*time.Second {
+		t.Fatalf("unexpected API error: %#v (%v)", apiError, err)
 	}
 }
 
