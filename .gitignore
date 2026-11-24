@@ -1,0 +1,10 @@
+/.env
+/docs/
+/portwatch.sqlite*
+/portwatch
+
+# macOS metadata
+.DS_Store
+._*
+.AppleDouble/
+.LSOverride

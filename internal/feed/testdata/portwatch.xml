@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>PortWatch VI news</title>
+    <link>https://portwatch-vi.xyz/news/</link>
+    <description>News</description>
+    <item>
+      <title>Second &amp; latest story</title>
+      <link>https://portwatch-vi.xyz/news/2026-11-24-second</link>
+      <guid isPermaLink="true">https://portwatch-vi.xyz/news/2026-11-24-second</guid>
+      <pubDate>Tue, 24 Nov 2026 12:00:00 GMT</pubDate>
+      <category>Port</category>
+      <description>Short &lt;summary&gt;.</description>
+    </item>
+    <item>
+      <title>First story</title>
+      <link>https://portwatch-vi.xyz/news/2026-11-24-first</link>
+      <guid isPermaLink="true">https://portwatch-vi.xyz/news/2026-11-24-first</guid>
+      <pubDate>Tue, 24 Nov 2026 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

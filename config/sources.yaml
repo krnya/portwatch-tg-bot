@@ -1,0 +1,5 @@
+poll_interval: 2m
+sources:
+  - id: portwatch-vi
+    kind: portwatch
+    feed_url: https://portwatch-vi.xyz/news/feed.xml
